@@ -1,7 +1,7 @@
 # v 1.2
 # Changes from 1.1
 # dte is used instead of cdte, as appropriate
-#args<-c("1","yield02","5")
+#args<-c("1","yield01","5")
 #args <- c("1")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
@@ -561,7 +561,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         0.1
                                                                 )                                                        
                                                 }
-
+                                                
                                                 greeks <-
                                                         EuropeanOption(
                                                                 tolower(side),
@@ -641,7 +641,7 @@ for (i in 1:nrow(niftymd)) {
                                                                                         futurelow * 0.1 * cdte
                                                                                 ) < TPThreshold / 100                                                                        
                                                                 }
-
+                                                                
                                                                 if (tp) {
                                                                         niftymd$callcoverprice[i] = (
                                                                                 0.1 * futuresettle * TPThreshold * cdte
@@ -816,7 +816,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         0.1
                                                                 )
                                                 }
-
+                                                
                                                 greeks <-
                                                         EuropeanOption(
                                                                 tolower(side),
@@ -911,7 +911,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         niftymd$putexitreason[i] =
                                                                                 "TAKEPROFIT"
                                                                         niftymd$underlyingputexitprice[i] = futuresettle                                                                        
-                                                                
+                                                                        
                                                                 } else if (niftymd$putexittheta[i] /
                                                                            niftymd$putexitvega[i] > TimeDecayExitRisk) {
                                                                         niftymd$putcoverprice[i] = datarow$settle[1]
@@ -944,9 +944,9 @@ for (i in 1:nrow(niftymd)) {
 trades = data.frame(
         symbol = character(),
         trade = character(),
-        entrytime = character(),
+        entrytime = as.POSIXct(character()),
         entryprice = numeric(),
-        exittime = character(),
+        exittime = as.POSIXct(character()),
         exitprice = numeric(),
         percentprofit = numeric(),
         bars = numeric(),
@@ -977,85 +977,87 @@ for (i in 1:nrow(subset)) {
         right = ifelse(subset[i, c("inshorttrade")] == 1, "CALL", "PUT")
         strike = ifelse(subset[i, c("inshorttrade")] == 1, subset[i, c("callstrike")], subset[i, c("putstrike")])
         symbol = paste("NSENIFTY_OPT", expiry, right, strike, sep = "_")
-        entrytime = as.Date(subset[i, c("date")], tz = "Asia/Kolkata")
         entryprice = subset[i, c("callprice")]
         exitprice = subset[i, c("callcoverprice")]
-        exittime = as.Date(subset[i, c("callexitdate")], tz = "Asia/Kolkata")
-        if (is.na(exittime)) {
-                potentialexittime = as.Date(strptime(subset[i, c("contractexpiry")], format =
-                                                             "%Y-%m-%d"), tz = "Asia/Kolkata")
-                if (potentialexittime <= min(Sys.Date(),
-                                             as.Date(BackTestEndDate, tz = "Asia/Kolkata"))) {
-                        exittime = potentialexittime
+        if(entryprice>0){
+                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = "Asia/Kolkata")
+                exittime=subset[i, c("callexitdate")]
+                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz="Asia/Kolkata"))
+                if (is.na(exittime)) {
+                        potentialexittime = as.POSIXct(strptime(subset[i, c("contractexpiry")], format =
+                                                                        "%Y-%m-%d"), tz = "Asia/Kolkata")
+                        if (potentialexittime <= as.POSIXct(format(min(Sys.Date(),
+                                                                       as.Date(BackTestEndDate, tz = "Asia/Kolkata"))),tz="Asia/Kolkata")) {
+                                exittime = potentialexittime
+                        }
+                        if (!is.na(exittime) &&
+                            exittime == as.POSIXct("2014-04-24", tz = Asia / Kolkata)) {
+                                exittime = as.POSIXct("2014-04-23", tz = Asia / Kolkata)
+                        }
                 }
-                if (!is.na(exittime) &&
-                    exittime == as.Date("2014-04-24", tz = Asia / Kolkata)) {
-                        exittime = as.Date("2014-04-23", tz = Asia / Kolkata)
-                }
-        }
-        percentprofit = (entryprice - exitprice) * 100 / entryprice
-        bars = 0
-        pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
-        #        if(subset[i,c("inshorttrade")]==1 && shortpos[i]<maxshortpos && (longpos[i]+shortpos[i])<maxtotalpos && subset$callentryvega[i]<VegaRisk && subset$callentrytheta[i]<ThetaRisk && subset$callentryvol[i]>EntryVolThreshold/100 && subset$callentrytheta[i]/subset$callentryvega[i]<TimeDecayRisk){
-        if (subset[i, c("inshorttrade")] == 1 &&
-            longpos[i] < maxlongpos &&
-            #shortpos[i] < maxshortpos &&
-            (longpos[i] + shortpos[i]) < maxtotalpos &&
-            subset$callentryvega[i] < VegaRisk &&
-            subset$callentrytheta[i] < ThetaRisk &&
-            subset$callentryvol[i] > EntryVolThreshold / 100 &&
-            subset$callentrytheta[i] / subset$callentryvega[i] < TimeDecayRisk) {
-                if (subset[i, c("callentrypercent")] >= ReturnThresholdFullSize) {
-                        size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
-                        print(paste("CallReturn:", subset[i, c("callentrypercent")], "i:", i, sep =
-                                            ","))
-                } else if (subset[i, c("callentrypercent")] >= ReturnThresholdHalfSize) {
-                        size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
-                } else{
-                        size = 0
-                }
-
-                if (size > 0) {
-                        shortpos[i:length(shortpos)] = shortpos[i:length(shortpos)] + size
-                        exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
-                        trades = rbind(
-                                trades,
-                                data.frame(
-                                        symbol = symbol,
-                                        trade = "SHORT",
-                                        entrytime = entrytime,
-                                        entryprice = entryprice,
-                                        exittime = exittime,
-                                        exitprice = exitprice,
-                                        percentprofit = percentprofit,
-                                        bars = bars,
-                                        brokerage = 2*SingleLegBrokerage / ((
-                                                entryprice + exitprice
-                                        ) * 75),
-                                        netpercentprofit =
-                                                (percentprofit),
-                                        absolutepnl = pnl *
-                                                size,
-                                        size = size,
-                                        exitreason = subset$callexitreason[i],
-                                        stringsAsFactors = FALSE
+                percentprofit = (entryprice - exitprice) * 100 / entryprice
+                bars = 0
+                pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
+                #        if(subset[i,c("inshorttrade")]==1 && shortpos[i]<maxshortpos && (longpos[i]+shortpos[i])<maxtotalpos && subset$callentryvega[i]<VegaRisk && subset$callentrytheta[i]<ThetaRisk && subset$callentryvol[i]>EntryVolThreshold/100 && subset$callentrytheta[i]/subset$callentryvega[i]<TimeDecayRisk){
+                if (subset[i, c("inshorttrade")] == 1 &&
+                    longpos[i] < maxlongpos &&
+                    #shortpos[i] < maxshortpos &&
+                    (longpos[i] + shortpos[i]) < maxtotalpos &&
+                    subset$callentryvega[i] < VegaRisk &&
+                    subset$callentrytheta[i] < ThetaRisk &&
+                    subset$callentryvol[i] > EntryVolThreshold / 100 &&
+                    subset$callentrytheta[i] / subset$callentryvega[i] < TimeDecayRisk) {
+                        if (subset[i, c("callentrypercent")] >= ReturnThresholdFullSize) {
+                                size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                                print(paste("CallReturn:", subset[i, c("callentrypercent")], "i:", i, sep =" "))
+                        } else if (subset[i, c("callentrypercent")] >= ReturnThresholdHalfSize) {
+                                size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                        } else{
+                                size = 0
+                        }
+                        
+                        if (size > 0) {
+                                shortpos[i:length(shortpos)] = shortpos[i:length(shortpos)] + size
+                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
+                                trades = rbind(
+                                        trades,
+                                        data.frame(
+                                                symbol = symbol,
+                                                trade = "SHORT",
+                                                entrytime = entrytime,
+                                                entryprice = entryprice,
+                                                exittime = exittime,
+                                                exitprice = exitprice,
+                                                percentprofit = percentprofit,
+                                                bars = bars,
+                                                brokerage = 2*SingleLegBrokerage / ((
+                                                        entryprice + exitprice
+                                                ) * 75),
+                                                netpercentprofit =
+                                                        (percentprofit),
+                                                absolutepnl = pnl *
+                                                        size,
+                                                size = size,
+                                                exitreason = subset$callexitreason[i],
+                                                stringsAsFactors = FALSE
+                                        )
                                 )
-                        )
-                        if (!is.na(exittime)) {
-                                exitindex = which(
-                                        as.Date(subset$date, tz = "Asia/Kolkata") == exittime
-                                )
-                                if (length(exitindex) == 1) {
-                                        shortpos[exitindex:length(shortpos)] = shortpos[exitindex:length(shortpos)] -
-                                                size
-                                        exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
-                                                size*futuresettle*ExchangeMargin*1.1/100
+                                if (!is.na(exittime)) {
+                                        exitindex = which(
+                                                as.POSIXct(format(subset$date), tz = "Asia/Kolkata") == exittime
+                                        )
+                                        if (length(exitindex) == 1) {
+                                                shortpos[exitindex:length(shortpos)] = shortpos[exitindex:length(shortpos)] -
+                                                        size
+                                                exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
+                                                        size*futuresettle*ExchangeMargin*1.1/100
+                                        }
+                                        
                                 }
                                 
                         }
                         
-                }
-                
+                }        
         }
         
         expiry = strftime(subset[i, c("contractexpiry")], format = "%Y%m%d")
@@ -1064,84 +1066,89 @@ for (i in 1:nrow(subset)) {
         symbol = paste("NSENIFTY_OPT", expiry, right, strike, sep = "_")
         entryprice = subset[i, c("putprice")]
         exitprice = subset[i, c("putcoverprice")]
-        exittime = as.Date(subset[i, c("putexitdate")], tz = "Asia/Kolkata")
-        if (is.na(exittime)) {
-                potentialexittime = as.Date(strptime(subset[i, c("contractexpiry")], format =
-                                                             "%Y-%m-%d"), tz = "Asia/Kolkata")
-                if (potentialexittime <= min(Sys.Date(),
-                                             as.Date(BackTestEndDate, tz = "Asia/Kolkata"))) {
-                        exittime = potentialexittime
+        if(entryprice>0){
+                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = "Asia/Kolkata")
+                exittime=subset[i, c("putexitdate")]
+                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz="Asia/Kolkata"))
+                if (is.na(exittime)) {
+                        potentialexittime = as.POSIXct(strptime(subset[i, c("contractexpiry")], format =
+                                                                        "%Y-%m-%d"), tz = "Asia/Kolkata")
+                        if (potentialexittime <= as.POSIXct(format(min(Sys.Date(),
+                                                                       as.Date(BackTestEndDate, tz = "Asia/Kolkata"))),tz="Asia/Kolkata")) {
+                                exittime = potentialexittime
+                        }
+                        if (!is.na(exittime) &&
+                            exittime == as.POSIXct("2014-04-24", tz = Asia / Kolkata)) {
+                                exittime = as.POSIXct("2014-04-23", tz = Asia / Kolkata)
+                        }
                 }
-                if (!is.na(exittime) &&
-                    exittime == as.Date("2014-04-24", tz = Asia / Kolkata)) {
-                        exittime = as.Date("2014-04-23", tz = Asia / Kolkata)
-                }
-        }
-        percentprofit = (entryprice - exitprice) * 100 / entryprice
-        bars = 0
-        pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
-        
-        #        if(subset[i,c("inlongtrade")]==1 && longpos[i]<maxlongpos  && (longpos[i]+shortpos[i])<maxtotalpos && subset$putentryvega[i]<VegaRisk && subset$putentrytheta[i]<ThetaRisk && subset$putentryvol[i]>EntryVolThreshold/100 && subset$putentrytheta[i]/subset$putentryvega[i]<TimeDecayRisk){
-        if (subset[i, c("inlongtrade")] == 1 &&
-            shortpos[i] < maxshortpos  &&
-            #longpos[i] < maxlongpos  &&
-           (longpos[i] + shortpos[i]) < maxtotalpos &&
-            subset$putentryvega[i] < VegaRisk &&
-            subset$putentrytheta[i] < ThetaRisk &&
-            subset$putentryvol[i] > EntryVolThreshold / 100 &&
-            subset$putentrytheta[i] / subset$putentryvega[i] < TimeDecayRisk) {
-                if (subset[i, c("putentrypercent")] >= ReturnThresholdFullSize) {
-                        size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
-                        print(paste("PutReturn:", subset[i, c("putentrypercent")], "i:", i, sep =
-                                            ","))
-                        
-                } else if (subset[i, c("putentrypercent")] >= ReturnThresholdHalfSize) {
-                        size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
-                } else{
-                        size = 0
-                }
-                if (size > 0) {
-                        longpos[i:length(longpos)] = longpos[i:length(longpos)] + size
-                        exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
-                        trades = rbind(
-                                trades,
-                                data.frame(
-                                        symbol = symbol,
-                                        trade = "SHORT",
-                                        entrytime = entrytime,
-                                        entryprice = entryprice,
-                                        exittime = exittime,
-                                        exitprice = exitprice,
-                                        percentprofit = percentprofit,
-                                        bars = bars,
-                                        brokerage = 2*SingleLegBrokerage / ((
-                                                entryprice + exitprice
-                                        ) * 75),
-                                        netpercentprofit =
-                                                percentprofit,
-                                        absolutepnl = pnl *
-                                                size,
-                                        size = size,
-                                        exitreason = subset$putexitreason[i],
-                                        stringsAsFactors = FALSE
+                percentprofit = (entryprice - exitprice) * 100 / entryprice
+                bars = 0
+                pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
+                
+                #        if(subset[i,c("inlongtrade")]==1 && longpos[i]<maxlongpos  && (longpos[i]+shortpos[i])<maxtotalpos && subset$putentryvega[i]<VegaRisk && subset$putentrytheta[i]<ThetaRisk && subset$putentryvol[i]>EntryVolThreshold/100 && subset$putentrytheta[i]/subset$putentryvega[i]<TimeDecayRisk){
+                if (subset[i, c("inlongtrade")] == 1 &&
+                    shortpos[i] < maxshortpos  &&
+                    #longpos[i] < maxlongpos  &&
+                    (longpos[i] + shortpos[i]) < maxtotalpos &&
+                    subset$putentryvega[i] < VegaRisk &&
+                    subset$putentrytheta[i] < ThetaRisk &&
+                    subset$putentryvol[i] > EntryVolThreshold / 100 &&
+                    subset$putentrytheta[i] / subset$putentryvega[i] < TimeDecayRisk) {
+                        if (subset[i, c("putentrypercent")] >= ReturnThresholdFullSize) {
+                                size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                                print(paste("PutReturn:", subset[i, c("putentrypercent")], "i:", i, sep =
+                                                    ","))
+                                
+                        } else if (subset[i, c("putentrypercent")] >= ReturnThresholdHalfSize) {
+                                size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                        } else{
+                                size = 0
+                        }
+                        if (size > 0) {
+                                longpos[i:length(longpos)] = longpos[i:length(longpos)] + size
+                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
+                                trades = rbind(
+                                        trades,
+                                        data.frame(
+                                                symbol = symbol,
+                                                trade = "SHORT",
+                                                entrytime = entrytime,
+                                                entryprice = entryprice,
+                                                exittime = exittime,
+                                                exitprice = exitprice,
+                                                percentprofit = percentprofit,
+                                                bars = bars,
+                                                brokerage = 2*SingleLegBrokerage / ((
+                                                        entryprice + exitprice
+                                                ) * 75),
+                                                netpercentprofit =
+                                                        percentprofit,
+                                                absolutepnl = pnl *
+                                                        size,
+                                                size = size,
+                                                exitreason = subset$putexitreason[i],
+                                                stringsAsFactors = FALSE
+                                        )
                                 )
-                        )
-                        if (!is.na(exittime)) {
-                                exitindex = which(
-                                        as.Date(subset$date, tz = "Asia/Kolkata") == exittime
-                                )
-                                if (length(exitindex) == 1) {
-                                        longpos[exitindex:length(longpos)] = longpos[exitindex:length(longpos)] -
-                                                size
-                                        exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
-                                                size*futuresettle*ExchangeMargin*1.1/100
+                                if (!is.na(exittime)) {
+                                        exitindex = which(
+                                                as.POSIXct(format(subset$date), tz = "Asia/Kolkata") == exittime
+                                        )
+                                        if (length(exitindex) == 1) {
+                                                longpos[exitindex:length(longpos)] = longpos[exitindex:length(longpos)] -
+                                                        size
+                                                exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
+                                                        size*futuresettle*ExchangeMargin*1.1/100
+                                        }
                                 }
+                                
+                                
                         }
                         
-                        
-                }
-                
+                }        
         }
+        
         if(lastrow){
                 if(subset[i, c("inlongtrade")] == 1){
                         levellog(logger,
@@ -1190,11 +1197,11 @@ if(nrow(trades)>0){
 
 entrysize = 0
 exitsize = 0
-if (length(which(trades$entrytime == Sys.Date())) == 1) {
-        entrysize = trades[trades$entrytime == Sys.Date(), c("size")][1]
+if (length(which(as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date())) == 1) {
+        entrysize = trades[as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date(), c("size")][1]
 }
-if (length(which(trades$exittime == Sys.Date())) >= 1) {
-        exitsize = sum(trades[trades$exittime == Sys.Date(), c("size")])
+if (length(which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date())) >= 1) {
+        exitsize = sum(trades[as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date(), c("size")])
 }
 
 #Exit First, then enter
