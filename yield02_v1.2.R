@@ -1,8 +1,8 @@
 # v 1.2
 # Changes from 1.1
 # dte is used instead of cdte, as appropriate
-#args<-c("1","yield01","5")
-#args <- c("1")
+# args<-c("1","yield01","5")
+# args <- c("1")
 # args[1] is a flag for model building. 0=> Build Model, 1=> Backtest 2=> Backtest and BootStrap
 # args[2] is the strategy name
 # args[3] is the redisdatabase
@@ -1201,7 +1201,8 @@ if (length(which(as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date())) == 
         entrysize = trades[as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date(), c("size")][1]
 }
 if (length(which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date())) >= 1) {
-        exitsize = sum(trades[as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date(), c("size")])
+        exittime=which(as.Date(optionTrades$exittime,tz="Asia/Kolkata") == Sys.Date())
+        exitsize = sum(optionTrades[exittime, c("size")])
 }
 
 #Exit First, then enter
@@ -1210,7 +1211,7 @@ if (length(which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date())) >= 1
 if (exitsize > 0) {
         redisConnect()
         redisSelect(args[3])
-        out <- trades[which(trades$exittime == Sys.Date()),]
+        out <- trades[which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date()),]
         for (o in 1:nrow(out)) {
                 startingposition = abs(GetCurrentPosition(out[o, "symbol"], trades)) + out[o, "size"]
                 redisString = paste(out[o, "symbol"],
@@ -1232,7 +1233,7 @@ if (exitsize > 0) {
 if (entrysize > 0) {
         redisConnect()
         redisSelect(args[3])
-        out <- trades[which(trades$entrytime == Sys.Date()),]
+        out <- trades[which(as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date()),]
         for (o in 1:nrow(out)) {
                 startingposition = abs(GetCurrentPosition(out[o, "symbol"], trades)) - out[o, "size"]
                 redisString = paste(out[o, "symbol"],

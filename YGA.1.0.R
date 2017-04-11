@@ -7,35 +7,6 @@
 # args[2] is the strategy name
 # args[3] is the redisdatabase
 # args[4] is the date
-today=strftime(Sys.Date(),tz="Asia/Kolkata",format="%Y-%m-%d")
-
-options(scipen = 999)
-BackTestCutOffDate = "2016-01-01"
-BackTestStartDate = "2017-01-18"
-#BackTestCutOffDate = "2012-01-01"
-#BackTestStartDate = "2012-04-01"
-BackTestEndDate = ifelse(length(args) <= 1, "2017-03-31", today)
-TimeDecayRisk = -0.5
-TimeDecayExitRisk = 0
-VegaRisk = 5
-ThetaRisk = -2
-EntryVolThreshold = 0
-ReturnThresholdFullSize = 30
-ReturnThresholdHalfSize = 15
-TPThreshold = 10
-HistoricalVol = 0.68
-SDEntry = 1.5
-SDExit = 0.75
-RiskUnits=2
-RiskUnitSize=1200
-maxlongpos = 600*RiskUnits
-maxshortpos = 600*RiskUnits
-maxtotalpos = RiskUnitSize*RiskUnits
-SingleLegBrokerage=20
-
-FullSize = 150*RiskUnits
-HalfSize = 75*RiskUnits
-ExchangeMargin=12.5
 
 library(caret)
 library(nnet)
@@ -50,18 +21,75 @@ library(zoo)
 library(RQuantLib)
 library(jsonlite)
 library(RcppRoll)
-fnodatafolder <- ("/home/psharma/Seafile/rfiles/daily-fno/")
-niftydatafolder <- ("/home/psharma/Seafile/rfiles/daily/")
+options(scipen = 999)
 
+args.commandline=commandArgs(trailingOnly=TRUE)
+if(length(args.commandline)>0){
+        args<-args.commandline
+}
+
+redisConnect()
+redisSelect(1)
+if(length(args)>1){
+        static<-redisHGetAll(toupper(args[2]))
+}else{
+        static<-redisHGetAll("YIELD03")
+}
+
+newargs<-unlist(strsplit(static$args,","))
+if(length(args)<=1 && length(newargs>1)){
+        args<-newargs
+}
+redisClose()
+today=strftime(Sys.Date(),tz=kTimeZone,format="%Y-%m-%d")
+
+kWriteToRedis <- as.logical(static$WriteToRedis)
+kGetMarketData<-as.logical(static$GetMarketData)
+kBackTestCutOffDate<-static$BackTestCutOffDate
+kBackTestStartDate<-static$BackTestStartDate
+kBackTestEndDate<-static$BackTestEndDate
+kBackTestEndDate = ifelse(length(args) <= 1, kBackTestEndDate, today)
+kFNODataFolder <- static$FNODataFolder
+kNiftyDataFolder <- static$NiftyDataFolder
+kTimeZone <- static$TimeZone
+kIndex<-static$Index
+kMLFile<-static$MLFile
+kBrokerage<-as.numeric(static$SingleLegBrokerageAsPercentOfValue)/100
+kPerContractBrokerage=as.numeric(static$SingleLegBrokerageAsValuePerContract)
+kContractSize=as.numeric(static$ContractSize)
+kMaxContracts=as.numeric(static$MaxContracts)
+kHomeDirectory=static$HomeDirectory
+kExchangeMargin=as.numeric(static$ExchangeMargin)
+kTimeDecayRisk=as.numeric(static$TimeDecayRisk)
+kTimeDecayExitRisk=as.numeric(static$TimeDecayExitRisk)
+kVegaRisk=as.numeric(static$VegaRisk)
+kThetaRisk=as.numeric(static$ThetaRisk)
+kEntryVolThreshold=as.numeric(static$EntryVolThreshold)
+kReturnThresholdFullSize=as.numeric(static$ReturnThresholdFullSize)
+kReturnThresholdHalfSize=as.numeric(static$ReturnThresholdHalfSize)
+kTPThreshold=as.numeric(static$TPThreshold)
+kHistoricalVol=as.numeric(static$HistoricalVol)
+kSDEntry=as.numeric(static$SDEntry)
+kSDExit=as.numeric(static$SDExit)
+kRiskUnits=as.numeric(static$RiskUnits)
+kMaxLongPosition=as.numeric(static$MaxLongPos)
+kMaxShortPosition=as.numeric(static$MaxShortPos)
+kRiskUnitSize=kMaxLongPosition+kMaxShortPosition
+kMaxLongPosition=kMaxLongPosition*kRiskUnits
+kMaxShortPosition=kMaxShortPosition*kRiskUnits
+kMaxTotalPosition=kRiskUnits*kRiskUnitSize
+kFullSize=as.numeric(static$FullSize)*kRiskUnits
+kHalfSize=as.numeric(static$HalfSize)*kRiskUnits
+kLogFile=static$LogFile
 ptm <- proc.time()
 
 logger <- create.logger()
-logfile(logger) <- 'base.log'
+logfile(logger) <- kLogFile
 level(logger) <- 'INFO'
 ###### BACKTEST ##############
 
 ###### Load Data #############
-load(paste(niftydatafolder, "NSENIFTY.Rdata", sep = ""))
+load(paste(kNiftyDataFolder, "NSENIFTY.Rdata", sep = ""))
 niftymd <- md
 rm(md)
 if (length(args) > 1) {
@@ -71,26 +99,28 @@ if (length(args) > 1) {
                                         "tick",
                                         "close",
                                         paste(today, " 09:12:00"))
-        newrow <-
-                data.frame(
-                        "symbol" = "NSENIFTY",
-                        "date" = newrow$date[1],
-                        "open" = newrow$open[1],
-                        "high" = newrow$high[1],
-                        "low" = newrow$low[1],
-                        "close" = newrow$close[1],
-                        "settle" = newrow$close[1],
-                        "volume" = 0,
-                        "aopen" = newrow$open[1],
-                        "ahigh" = newrow$high[1],
-                        "alow" = newrow$low[1],
-                        "aclose" = newrow$close[1],
-                        "asettle" = newrow$close[1],
-                        "avolume" = 0,
-                        "splitadjust" = 1
-                )
-        
-        niftymd <- rbind(niftymd, newrow)
+        if(nrow(newrow)==1){
+                newrow <-
+                        data.frame(
+                                "symbol" = "NSENIFTY",
+                                "date" = newrow$date[1],
+                                "open" = newrow$open[1],
+                                "high" = newrow$high[1],
+                                "low" = newrow$low[1],
+                                "close" = newrow$close[1],
+                                "settle" = newrow$close[1],
+                                "volume" = 0,
+                                "aopen" = newrow$open[1],
+                                "ahigh" = newrow$high[1],
+                                "alow" = newrow$low[1],
+                                "aclose" = newrow$close[1],
+                                "asettle" = newrow$close[1],
+                                "avolume" = 0,
+                                "splitadjust" = 1
+                        )
+                
+                niftymd <- rbind(niftymd, newrow)                
+        }
 }
 niftymd <- unique(niftymd) # remove duplicate rows
 load(paste("fit", "NSENIFTY", "swing02", "v1.0.Rdata", sep =
@@ -100,7 +130,7 @@ rollingsd <- roll_sd(change, 252)
 rollingsd <-
         c(rep(NA_character_, (nrow(niftymd) - length(rollingsd))), rollingsd)
 niftymd$rollingsd <- as.numeric(rollingsd)
-niftymd$rollingsd <- HistoricalVol
+niftymd$rollingsd <- kHistoricalVol
 
 
 ##### 1. Calculate Indicators ########
@@ -189,42 +219,42 @@ niftymd$inshorttrade <- Flip(niftymd$short, niftymd$cover)
 niftymd$stoplosslevel = 0
 
 niftymd <-
-        niftymd[niftymd$date >= as.POSIXct(BackTestStartDate, tz = "Asia/Kolkata"), ]
+        niftymd[niftymd$date >= as.POSIXct(kBackTestStartDate, tz = kTimeZone), ]
 niftymd <-
-        niftymd[niftymd$date <= as.POSIXct(BackTestEndDate, tz = "Asia/Kolkata"), ]
+        niftymd[niftymd$date <= as.POSIXct(kBackTestEndDate, tz = kTimeZone), ]
 
 # Remove bad business days
-tempdates<-seq(from=as.Date(BackTestStartDate,tz="Asia/Kolkata"),to=as.Date(min(Sys.Date(),as.Date(BackTestEndDate,tz="Asia/Kolkata"))),by=1)
+tempdates<-seq(from=as.Date(kBackTestStartDate,tz=kTimeZone),to=as.Date(min(Sys.Date(),as.Date(kBackTestEndDate,tz=kTimeZone))),by=1)
 bizdays<-isBusinessDay("India",tempdates)
-validindices<-match(as.Date(niftymd$date,tz="Asia/Kolkata"),tempdates[bizdays])
+validindices<-match(as.Date(niftymd$date,tz=kTimeZone),tempdates[bizdays])
 validindices<-complete.cases(validindices)
 niftymd<-niftymd[validindices,]
 
 ##### Calculate ATM Strike ######
-expirydate = as.Date(sapply(niftymd$date, getExpiryDate), tz = "Asia/Kolkata")
+expirydate = as.Date(sapply(niftymd$date, getExpiryDate), tz = kTimeZone)
 niftymd$expirydate <- expirydate
 
 nextexpiry = as.Date(sapply(
-        as.Date(niftymd$expirydate + 20, tz = "Asia/Kolkata"),
+        as.Date(niftymd$expirydate + 20, tz = kTimeZone),
         getExpiryDate
-), tz = "Asia/Kolkata")
+), tz = kTimeZone)
 niftymd$contractexpiry = as.Date(ifelse(
-        businessDaysBetween("India",as.Date(niftymd$date, tz = "Asia/Kolkata"),niftymd$expirydate) <= 3,
+        businessDaysBetween("India",as.Date(niftymd$date, tz = kTimeZone),niftymd$expirydate) <= 3,
         nextexpiry,
         niftymd$expirydate
 ),
-tz = "Asia/Kolkata")
+tz = kTimeZone)
 niftymd$futuresettle = -1
 #update future price for contractexpiry
 for (i in 1:nrow(niftymd)) {
         #update futures data for contract expiry
         expiry = format(niftymd[i, c("contractexpiry")], format = "%Y%m%d")
         symbol = paste("NSENIFTY", "FUT", expiry, "", "", sep = "_")
-        load(paste(fnodatafolder, symbol, ".Rdata", sep = ""))
+        load(paste(kFNODataFolder, expiry,"/",symbol, ".Rdata", sep = ""))
         datarow = md[md$date == niftymd$date[i], ]
         if (length(args) > 1 &&
             nrow(datarow) == 0 &&
-            niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = "Asia/Kolkata")) {
+            niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = kTimeZone)) {
                 datarow = getPriceArrayFromRedis(9,
                                                  symbol,
                                                  "tick",
@@ -239,11 +269,11 @@ for (i in 1:nrow(niftymd)) {
         #update futures data for current expiry date
         expiry = format(niftymd[i, c("expirydate")], format = "%Y%m%d")
         symbol = paste("NSENIFTY", "FUT", expiry, "", "", sep = "_")
-        load(paste(fnodatafolder, symbol, ".Rdata", sep = ""))
+        load(paste(kFNODataFolder, expiry,"/",symbol, ".Rdata", sep = ""))
         datarow = md[md$date == niftymd$date[i], ]
         if (length(args) > 1 &&
             nrow(datarow) == 0 &&
-            niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = "Asia/Kolkata")) {
+            niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = kTimeZone)) {
                 datarow = getPriceArrayFromRedis(9,
                                                  symbol,
                                                  "tick",
@@ -259,10 +289,10 @@ for (i in 1:nrow(niftymd)) {
 niftymd$ATMStrike = round(niftymd$futuresettle / 100) * 100
 niftymd$dte <-
         businessDaysBetween("India",
-                            as.Date(niftymd$date, tz = "Asia/Kolkata"),
+                            as.Date(niftymd$date, tz = kTimeZone),
                             niftymd$contractexpiry)
-niftymd$cushionentry <- sqrt(niftymd$dte) * niftymd$rollingsd * SDEntry
-niftymd$cushionexit <- sqrt(niftymd$dte) * niftymd$rollingsd * SDExit
+niftymd$cushionentry <- sqrt(niftymd$dte) * niftymd$rollingsd * kSDEntry
+niftymd$cushionexit <- sqrt(niftymd$dte) * niftymd$rollingsd * kSDExit
 niftymd$callstrike <-
         round((
                 niftymd$futuresettle + niftymd$futuresettle * niftymd$cushionentry / 100
@@ -271,8 +301,8 @@ niftymd$putstrike <-
         round((
                 niftymd$futuresettle - niftymd$futuresettle * niftymd$cushionentry / 100
         ) / 100) * 100
-#niftymd$callstrikesl<-niftymd$callstrike-sqrt(as.integer(niftymd$contractexpiry-as.Date(niftymd$date,tz="Asia/Kolkata")))*niftymd$rollingsd*SDExit*niftymd$callstrike/100
-#niftymd$putstrikesl<-niftymd$putstrike+sqrt(as.integer(niftymd$contractexpiry-as.Date(niftymd$date,tz="Asia/Kolkata")))*niftymd$rollingsd*SDExit*niftymd$putstrike/100
+#niftymd$callstrikesl<-niftymd$callstrike-sqrt(as.integer(niftymd$contractexpiry-as.Date(niftymd$date,tz=kTimeZone)))*niftymd$rollingsd*kSDExit*niftymd$callstrike/100
+#niftymd$putstrikesl<-niftymd$putstrike+sqrt(as.integer(niftymd$contractexpiry-as.Date(niftymd$date,tz=kTimeZone)))*niftymd$rollingsd*kSDExit*niftymd$putstrike/100
 
 
 niftymd <- na.omit(niftymd)
@@ -313,7 +343,7 @@ niftymd$underlyingputexitprice = -1
 #Calculate Entry
 for (i in 1:nrow(niftymd)) {
         niftymd$cdte[i] <-
-                as.integer(niftymd$contractexpiry[i] - as.Date(niftymd$date[i], tz = "Asia/Kolkata"))
+                as.integer(niftymd$contractexpiry[i] - as.Date(niftymd$date[i], tz = kTimeZone))
         side = "UNDEFINED"
         strike = 0
         if (niftymd[i, c("inshorttrade")] == 1) {
@@ -328,11 +358,11 @@ for (i in 1:nrow(niftymd)) {
                 strike = niftymd$callstrike[i]
                 expiry = format(niftymd$contractexpiry[i], format = "%Y%m%d")
                 symbol = paste("NSENIFTY", "OPT", expiry, side, strike, sep = "_")
-                load(paste(fnodatafolder, symbol, ".Rdata", sep = ""))
+                load(paste(kFNODataFolder,expiry,"/", symbol, ".Rdata", sep = ""))
                 datarow = md[md$date == niftymd$date[i],]
                 if (length(args) > 1 &&
                     nrow(datarow) == 0 &&
-                    niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = "Asia/Kolkata")) {
+                    niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = kTimeZone)) {
                         datarow = getPriceArrayFromRedis(9,
                                                          symbol,
                                                          "tick",
@@ -374,11 +404,11 @@ for (i in 1:nrow(niftymd)) {
                 strike = niftymd$putstrike[i]
                 expiry = format(niftymd$contractexpiry[i], format = "%Y%m%d")
                 symbol = paste("NSENIFTY", "OPT", expiry, side, strike, sep = "_")
-                load(paste(fnodatafolder, symbol, ".Rdata", sep = ""))
+                load(paste(kFNODataFolder, expiry,"/",symbol, ".Rdata", sep = ""))
                 datarow = md[md$date == niftymd$date[i],]
                 if (length(args) > 1 &&
                     nrow(datarow) == 0 &&
-                    niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = "Asia/Kolkata")) {
+                    niftymd$date[i] == as.POSIXct(today, "%Y-%m-%d", tz = kTimeZone)) {
                         datarow = getPriceArrayFromRedis(9,
                                                          symbol,
                                                          "tick",
@@ -418,10 +448,10 @@ for (i in 1:nrow(niftymd)) {
 }
 
 for (i in 1:nrow(niftymd)) {
-        if (niftymd$callentrytheta[i] / niftymd$callentryvega[i] < TimeDecayRisk) {
+        if (niftymd$callentrytheta[i] / niftymd$callentryvega[i] < kTimeDecayRisk) {
                 niftymd$incalltrade[i] = 1
         }
-        if (niftymd$putentrytheta[i] / niftymd$putentryvega[i] < TimeDecayRisk) {
+        if (niftymd$putentrytheta[i] / niftymd$putentryvega[i] < kTimeDecayRisk) {
                 niftymd$inputtrade[i] = 1
         }
 }
@@ -437,14 +467,14 @@ for (i in 1:nrow(niftymd)) {
                 
                 # check for exit levels till j rows ahead
                 lookaheadindex = which(
-                        as.Date(niftymd$date, tz = "Asia/Kolkata") == niftymd$contractexpiry[i]
+                        as.Date(niftymd$date, tz = kTimeZone) == niftymd$contractexpiry[i]
                 )
                 if (length(lookaheadindex) == 0 &&
                     niftymd$contractexpiry[i] == as.Date("2014-04-24")) {
                         #contract expiry was changed on account of elections, but contract expiry in db is still 2014-04-24
                         lookaheadindex = which(
-                                as.Date(niftymd$date, tz = "Asia/Kolkata") == as.Date("2014-04-23", tz =
-                                                                                              "Asia/Kolkata")
+                                as.Date(niftymd$date, tz = kTimeZone) == as.Date("2014-04-23", tz =
+                                                                                              kTimeZone)
                         )
                         
                 }
@@ -483,7 +513,8 @@ for (i in 1:nrow(niftymd)) {
                                         )
                                         load(
                                                 paste(
-                                                        fnodatafolder,
+                                                        kFNODataFolder,
+                                                        expiry,"/",
                                                         symbol,
                                                         ".Rdata",
                                                         sep = ""
@@ -494,7 +525,7 @@ for (i in 1:nrow(niftymd)) {
                                             nrow(datarow) == 0 &&
                                             niftymd$date[i] == as.POSIXct(today,
                                                                           "%Y-%m-%d",
-                                                                          tz = "Asia/Kolkata")) {
+                                                                          tz = kTimeZone)) {
                                                 datarow = getPriceArrayFromRedis(
                                                         9,
                                                         symbol,
@@ -512,7 +543,7 @@ for (i in 1:nrow(niftymd)) {
                                                         as.integer(
                                                                 niftymd$contractexpiry[i] - as.Date(
                                                                         niftymd$date[j],
-                                                                        tz = "Asia/Kolkata"
+                                                                        tz = kTimeZone
                                                                 )
                                                         )
                                                 print(paste(
@@ -543,7 +574,7 @@ for (i in 1:nrow(niftymd)) {
                                                         niftymd$currentfuturelow[j]
                                                 )
                                                 dte=ifelse(niftymd$contractexpiry[j]==niftymd$contractexpiry[i],niftymd$dte[j],
-                                                           businessDaysBetween("India", as.Date(niftymd$date[j], tz = "Asia/Kolkata"),niftymd$expirydate[j]))
+                                                           businessDaysBetween("India", as.Date(niftymd$date[j], tz = kTimeZone),niftymd$expirydate[j]))
                                                 #futureopen=ifelse(niftymd$expirydate[j]==niftymd[i,c("contractexpiry")],niftymd$currentfutureopen[j],niftymd$futureopen[j])
                                                 #futurehigh=ifelse(niftymd$expirydate[j]==niftymd[i,c("contractexpiry")],niftymd$currentfuturehigh[j],niftymd$futurehigh[j])
                                                 #futurelow=ifelse(niftymd$expirydate[j]==niftymd[i,c("contractexpiry")],niftymd$currentfuturelow[j],niftymd$futurelow[j])
@@ -582,11 +613,11 @@ for (i in 1:nrow(niftymd)) {
                                                 #         as.integer(
                                                 #                 niftymd$contractexpiry[i] - as.Date(
                                                 #                         niftymd$date[j],
-                                                #                         tz = "Asia/Kolkata"
+                                                #                         tz = kTimeZone
                                                 #                 )
                                                 #         )
-                                                # ) * niftymd$rollingsd[i] * SDExit * strike / 100
-                                                sl=sqrt(dte)* niftymd$rollingsd[i] * SDExit * strike / 100
+                                                # ) * niftymd$rollingsd[i] * kSDExit * strike / 100
+                                                sl=sqrt(dte)* niftymd$rollingsd[i] * kSDExit * strike / 100
                                                 if (side == "CALL") {
                                                         #check sl
                                                         slprice = strike -
@@ -609,7 +640,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         )
                                                                 if (as.Date(
                                                                         niftymd$callexitdate[i],
-                                                                        tz = "Asia/Kolkata"
+                                                                        tz = kTimeZone
                                                                 ) == niftymd$contractexpiry[i]) {
                                                                         niftymd$callcoverprice[i] = datarow$close[1]
                                                                 } else{
@@ -639,12 +670,12 @@ for (i in 1:nrow(niftymd)) {
                                                                         tp = optionprice *
                                                                                 365 / (
                                                                                         futurelow * 0.1 * cdte
-                                                                                ) < TPThreshold / 100                                                                        
+                                                                                ) < kTPThreshold / 100                                                                        
                                                                 }
 
                                                                 if (tp) {
                                                                         niftymd$callcoverprice[i] = (
-                                                                                0.1 * futuresettle * TPThreshold * cdte
+                                                                                0.1 * futuresettle * kTPThreshold * cdte
                                                                         ) / 36500
                                                                         niftymd$callexitdate[i] =
                                                                                 paste(
@@ -659,7 +690,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         niftymd$underlyingcallexitprice[i] = futuresettle
                                                                         
                                                                 } else if (niftymd$callexittheta[i] /
-                                                                           niftymd$callexitvega[i] > TimeDecayExitRisk) {
+                                                                           niftymd$callexitvega[i] > kTimeDecayExitRisk) {
                                                                         niftymd$callcoverprice[i] = datarow$settle[i]
                                                                         niftymd$callexitdate[i] =
                                                                                 paste(
@@ -691,14 +722,14 @@ for (i in 1:nrow(niftymd)) {
                 
                 # check for exit levels till j rows ahead
                 lookaheadindex = which(
-                        as.Date(niftymd$date, tz = "Asia/Kolkata") == niftymd$contractexpiry[i]
+                        as.Date(niftymd$date, tz = kTimeZone) == niftymd$contractexpiry[i]
                 )
                 if (length(lookaheadindex) == 0 &&
                     niftymd$contractexpiry[i] == as.Date("2014-04-24")) {
                         #contract expiry was changed on account of elections, but contract expiry in db is still 2014-04-24
                         lookaheadindex = which(
-                                as.Date(niftymd$date, tz = "Asia/Kolkata") == as.Date("2014-04-23", tz =
-                                                                                              "Asia/Kolkata")
+                                as.Date(niftymd$date, tz = kTimeZone) == as.Date("2014-04-23", tz =
+                                                                                              kTimeZone)
                         )
                         
                 }
@@ -737,7 +768,8 @@ for (i in 1:nrow(niftymd)) {
                                         )
                                         load(
                                                 paste(
-                                                        fnodatafolder,
+                                                        kFNODataFolder,
+                                                        expiry,"/",
                                                         symbol,
                                                         ".Rdata",
                                                         sep = ""
@@ -748,7 +780,7 @@ for (i in 1:nrow(niftymd)) {
                                             nrow(datarow) == 0 &&
                                             niftymd$date[i] == as.POSIXct(today,
                                                                           "%Y-%m-%d",
-                                                                          tz = "Asia/Kolkata")) {
+                                                                          tz = kTimeZone)) {
                                                 datarow = getPriceArrayFromRedis(
                                                         9,
                                                         symbol,
@@ -766,7 +798,7 @@ for (i in 1:nrow(niftymd)) {
                                                         as.integer(
                                                                 niftymd$contractexpiry[i] - as.Date(
                                                                         niftymd$date[j],
-                                                                        tz = "Asia/Kolkata"
+                                                                        tz = kTimeZone
                                                                 )
                                                         )
                                                 print(paste(
@@ -801,7 +833,7 @@ for (i in 1:nrow(niftymd)) {
                                                         niftymd$currentfuturelow[j]
                                                 )
                                                 dte=ifelse(niftymd$contractexpiry[j]==niftymd$contractexpiry[i],niftymd$dte[j],
-                                                           businessDaysBetween("India", as.Date(niftymd$date[j], tz = "Asia/Kolkata"),niftymd$expirydate[j]))
+                                                           businessDaysBetween("India", as.Date(niftymd$date[j], tz = kTimeZone),niftymd$expirydate[j]))
                                                 vol<-0
                                                 if(dte>0){
                                                         vol <-
@@ -837,11 +869,11 @@ for (i in 1:nrow(niftymd)) {
                                                 #         as.integer(
                                                 #                 niftymd$contractexpiry[i] - as.Date(
                                                 #                         niftymd$date[j],
-                                                #                         tz = "Asia/Kolkata"
+                                                #                         tz = kTimeZone
                                                 #                 )
                                                 #         )
-                                                # ) * niftymd$rollingsd[i] * SDExit * strike / 100
-                                                sl=sqrt(dte)* niftymd$rollingsd[i] * SDExit * strike / 100
+                                                # ) * niftymd$rollingsd[i] * kSDExit * strike / 100
+                                                sl=sqrt(dte)* niftymd$rollingsd[i] * kSDExit * strike / 100
                                                 if (side == "PUT") {
                                                         #check sl
                                                         slprice = strike +
@@ -864,7 +896,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         )
                                                                 if (as.Date(
                                                                         niftymd$putexitdate[i],
-                                                                        tz = "Asia/Kolkata"
+                                                                        tz = kTimeZone
                                                                 ) == niftymd$contractexpiry[i]) {
                                                                         niftymd$putcoverprice[i] = datarow$close[1]
                                                                 } else{
@@ -893,12 +925,12 @@ for (i in 1:nrow(niftymd)) {
                                                                         tp = optionprice *
                                                                                 365 / (
                                                                                         futurelow * 0.1 * cdte
-                                                                                ) < TPThreshold / 100
+                                                                                ) < kTPThreshold / 100
                                                                         
                                                                 }
                                                                 if(tp){
                                                                         niftymd$putcoverprice[i] = (
-                                                                                0.1 * futurelow * TPThreshold * cdte
+                                                                                0.1 * futurelow * kTPThreshold * cdte
                                                                         ) / 36500
                                                                         niftymd$putexitdate[i] =
                                                                                 paste(
@@ -913,7 +945,7 @@ for (i in 1:nrow(niftymd)) {
                                                                         niftymd$underlyingputexitprice[i] = futuresettle                                                                        
                                                                 
                                                                 } else if (niftymd$putexittheta[i] /
-                                                                           niftymd$putexitvega[i] > TimeDecayExitRisk) {
+                                                                           niftymd$putexitvega[i] > kTimeDecayExitRisk) {
                                                                         niftymd$putcoverprice[i] = datarow$settle[1]
                                                                         niftymd$putexitdate[i] =
                                                                                 paste(
@@ -962,7 +994,7 @@ niftymd$callentrypercent = niftymd$callprice * 36500 / (niftymd$futuresettle *
                                                                 niftymd$cdte * 0.1)
 niftymd$putentrypercent = niftymd$putprice * 36500 / (niftymd$futuresettle *
                                                               niftymd$cdte * 0.1)
-startindex = head(which(niftymd$date >= BackTestStartDate), 1)
+startindex = head(which(niftymd$date >= kBackTestStartDate), 1)
 subset <- niftymd[startindex:nrow(niftymd), ]
 longpos = numeric(nrow(subset))
 shortpos = numeric(nrow(subset))
@@ -980,45 +1012,45 @@ for (i in 1:nrow(subset)) {
         entryprice = subset[i, c("callprice")]
         exitprice = subset[i, c("callcoverprice")]
         if(entryprice>0){
-                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = "Asia/Kolkata")
+                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = kTimeZone)
                 exittime=subset[i, c("callexitdate")]
-                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz="Asia/Kolkata"))
+                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz=kTimeZone))
                 if (is.na(exittime)) {
                         potentialexittime = as.POSIXct(strptime(subset[i, c("contractexpiry")], format =
-                                                                        "%Y-%m-%d"), tz = "Asia/Kolkata")
+                                                                        "%Y-%m-%d"), tz = kTimeZone)
                         if (potentialexittime <= as.POSIXct(format(min(Sys.Date(),
-                                                                       as.Date(BackTestEndDate, tz = "Asia/Kolkata"))),tz="Asia/Kolkata")) {
+                                                                       as.Date(kBackTestEndDate, tz = kTimeZone))),tz=kTimeZone)) {
                                 exittime = potentialexittime
                         }
                         if (!is.na(exittime) &&
-                            exittime == as.POSIXct("2014-04-24", tz = Asia / Kolkata)) {
-                                exittime = as.POSIXct("2014-04-23", tz = Asia / Kolkata)
+                            exittime == as.POSIXct("2014-04-24", tz = kTimeZone)) {
+                                exittime = as.POSIXct("2014-04-23", tz =kTimeZone)
                         }
                 }
                 percentprofit = (entryprice - exitprice) * 100 / entryprice
                 bars = 0
-                pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
-                #        if(subset[i,c("inshorttrade")]==1 && shortpos[i]<maxshortpos && (longpos[i]+shortpos[i])<maxtotalpos && subset$callentryvega[i]<VegaRisk && subset$callentrytheta[i]<ThetaRisk && subset$callentryvol[i]>EntryVolThreshold/100 && subset$callentrytheta[i]/subset$callentryvega[i]<TimeDecayRisk){
+                pnl = (entryprice - exitprice) - (2*kPerContractBrokerage / 75)
+                #        if(subset[i,c("inshorttrade")]==1 && shortpos[i]<kMaxShortPosition && (longpos[i]+shortpos[i])<kMaxTotalPosition && subset$callentryvega[i]<kVegaRisk && subset$callentrytheta[i]<kThetaRisk && subset$callentryvol[i]>kEntryVolThreshold/100 && subset$callentrytheta[i]/subset$callentryvega[i]<kTimeDecayRisk){
                 if (subset[i, c("inshorttrade")] == 1 &&
-                    longpos[i] < maxlongpos &&
-                    #shortpos[i] < maxshortpos &&
-                    (longpos[i] + shortpos[i]) < maxtotalpos &&
-                    subset$callentryvega[i] < VegaRisk &&
-                    subset$callentrytheta[i] < ThetaRisk &&
-                    subset$callentryvol[i] > EntryVolThreshold / 100 &&
-                    subset$callentrytheta[i] / subset$callentryvega[i] < TimeDecayRisk) {
-                        if (subset[i, c("callentrypercent")] >= ReturnThresholdFullSize) {
-                                size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                    longpos[i] < kMaxLongPosition &&
+                    #shortpos[i] < kMaxShortPosition &&
+                    (longpos[i] + shortpos[i]) < kMaxTotalPosition &&
+                    subset$callentryvega[i] < kVegaRisk &&
+                    subset$callentrytheta[i] < kThetaRisk &&
+                    subset$callentryvol[i] > kEntryVolThreshold / 100 &&
+                    subset$callentrytheta[i] / subset$callentryvega[i] < kTimeDecayRisk) {
+                        if (subset[i, c("callentrypercent")] >= kReturnThresholdFullSize) {
+                                size = min(kFullSize,kMaxTotalPosition-(longpos[i]+shortpos[i]))
                                 print(paste("CallReturn:", subset[i, c("callentrypercent")], "i:", i, sep =" "))
-                        } else if (subset[i, c("callentrypercent")] >= ReturnThresholdHalfSize) {
-                                size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                        } else if (subset[i, c("callentrypercent")] >= kReturnThresholdHalfSize) {
+                                size = min(kHalfSize,kMaxTotalPosition-(longpos[i]+shortpos[i]))
                         } else{
                                 size = 0
                         }
                         
                         if (size > 0) {
                                 shortpos[i:length(shortpos)] = shortpos[i:length(shortpos)] + size
-                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
+                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*kExchangeMargin*1.1
                                 trades = rbind(
                                         trades,
                                         data.frame(
@@ -1030,7 +1062,7 @@ for (i in 1:nrow(subset)) {
                                                 exitprice = exitprice,
                                                 percentprofit = percentprofit,
                                                 bars = bars,
-                                                brokerage = 2*SingleLegBrokerage / ((
+                                                brokerage = 2*kPerContractBrokerage / ((
                                                         entryprice + exitprice
                                                 ) * 75),
                                                 netpercentprofit =
@@ -1044,13 +1076,13 @@ for (i in 1:nrow(subset)) {
                                 )
                                 if (!is.na(exittime)) {
                                         exitindex = which(
-                                                as.POSIXct(format(subset$date), tz = "Asia/Kolkata") == exittime
+                                                as.POSIXct(format(subset$date), tz = kTimeZone) == exittime
                                         )
                                         if (length(exitindex) == 1) {
                                                 shortpos[exitindex:length(shortpos)] = shortpos[exitindex:length(shortpos)] -
                                                         size
                                                 exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
-                                                        size*futuresettle*ExchangeMargin*1.1/100
+                                                        size*futuresettle*kExchangeMargin*1.1
                                         }
                                         
                                 }
@@ -1067,47 +1099,47 @@ for (i in 1:nrow(subset)) {
         entryprice = subset[i, c("putprice")]
         exitprice = subset[i, c("putcoverprice")]
         if(entryprice>0){
-                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = "Asia/Kolkata")
+                entrytime = as.POSIXct(format(subset[i, c("date")]), tz = kTimeZone)
                 exittime=subset[i, c("putexitdate")]
-                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz="Asia/Kolkata"))
+                exittime = as.POSIXct(strptime(exittime,format="%Y-%m-%d",tz=kTimeZone))
                 if (is.na(exittime)) {
                         potentialexittime = as.POSIXct(strptime(subset[i, c("contractexpiry")], format =
-                                                                        "%Y-%m-%d"), tz = "Asia/Kolkata")
+                                                                        "%Y-%m-%d"), tz = kTimeZone)
                         if (potentialexittime <= as.POSIXct(format(min(Sys.Date(),
-                                                                       as.Date(BackTestEndDate, tz = "Asia/Kolkata"))),tz="Asia/Kolkata")) {
+                                                                       as.Date(kBackTestEndDate, tz = kTimeZone))),tz=kTimeZone)) {
                                 exittime = potentialexittime
                         }
                         if (!is.na(exittime) &&
-                            exittime == as.POSIXct("2014-04-24", tz = Asia / Kolkata)) {
-                                exittime = as.POSIXct("2014-04-23", tz = Asia / Kolkata)
+                            exittime == as.POSIXct("2014-04-24", tz = kTimeZone)) {
+                                exittime = as.POSIXct("2014-04-23", tz = kTimeZone)
                         }
                 }
                 percentprofit = (entryprice - exitprice) * 100 / entryprice
                 bars = 0
-                pnl = (entryprice - exitprice) - (2*SingleLegBrokerage / 75)
+                pnl = (entryprice - exitprice) - (2*kPerContractBrokerage / 75)
                 
-                #        if(subset[i,c("inlongtrade")]==1 && longpos[i]<maxlongpos  && (longpos[i]+shortpos[i])<maxtotalpos && subset$putentryvega[i]<VegaRisk && subset$putentrytheta[i]<ThetaRisk && subset$putentryvol[i]>EntryVolThreshold/100 && subset$putentrytheta[i]/subset$putentryvega[i]<TimeDecayRisk){
+                #        if(subset[i,c("inlongtrade")]==1 && longpos[i]<kMaxLongPosition  && (longpos[i]+shortpos[i])<kMaxTotalPosition && subset$putentryvega[i]<kVegaRisk && subset$putentrytheta[i]<kThetaRisk && subset$putentryvol[i]>kEntryVolThreshold/100 && subset$putentrytheta[i]/subset$putentryvega[i]<kTimeDecayRisk){
                 if (subset[i, c("inlongtrade")] == 1 &&
-                    shortpos[i] < maxshortpos  &&
-                    #longpos[i] < maxlongpos  &&
-                    (longpos[i] + shortpos[i]) < maxtotalpos &&
-                    subset$putentryvega[i] < VegaRisk &&
-                    subset$putentrytheta[i] < ThetaRisk &&
-                    subset$putentryvol[i] > EntryVolThreshold / 100 &&
-                    subset$putentrytheta[i] / subset$putentryvega[i] < TimeDecayRisk) {
-                        if (subset[i, c("putentrypercent")] >= ReturnThresholdFullSize) {
-                                size = min(FullSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                    shortpos[i] < kMaxShortPosition  &&
+                    #longpos[i] < kMaxLongPosition  &&
+                    (longpos[i] + shortpos[i]) < kMaxTotalPosition &&
+                    subset$putentryvega[i] < kVegaRisk &&
+                    subset$putentrytheta[i] < kThetaRisk &&
+                    subset$putentryvol[i] > kEntryVolThreshold / 100 &&
+                    subset$putentrytheta[i] / subset$putentryvega[i] < kTimeDecayRisk) {
+                        if (subset[i, c("putentrypercent")] >= kReturnThresholdFullSize) {
+                                size = min(kFullSize,kMaxTotalPosition-(longpos[i]+shortpos[i]))
                                 print(paste("PutReturn:", subset[i, c("putentrypercent")], "i:", i, sep =
                                                     ","))
                                 
-                        } else if (subset[i, c("putentrypercent")] >= ReturnThresholdHalfSize) {
-                                size = min(HalfSize,maxtotalpos-(longpos[i]+shortpos[i]))
+                        } else if (subset[i, c("putentrypercent")] >= kReturnThresholdHalfSize) {
+                                size = min(kHalfSize,kMaxTotalPosition-(longpos[i]+shortpos[i]))
                         } else{
                                 size = 0
                         }
                         if (size > 0) {
                                 longpos[i:length(longpos)] = longpos[i:length(longpos)] + size
-                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*ExchangeMargin*1.1/100
+                                exchangemargin[i:length(exchangemargin)] = exchangemargin[i:length(exchangemargin)] + size*futuresettle*kExchangeMargin*1.1
                                 trades = rbind(
                                         trades,
                                         data.frame(
@@ -1119,7 +1151,7 @@ for (i in 1:nrow(subset)) {
                                                 exitprice = exitprice,
                                                 percentprofit = percentprofit,
                                                 bars = bars,
-                                                brokerage = 2*SingleLegBrokerage / ((
+                                                brokerage = 2*kPerContractBrokerage / ((
                                                         entryprice + exitprice
                                                 ) * 75),
                                                 netpercentprofit =
@@ -1133,13 +1165,13 @@ for (i in 1:nrow(subset)) {
                                 )
                                 if (!is.na(exittime)) {
                                         exitindex = which(
-                                                as.POSIXct(format(subset$date), tz = "Asia/Kolkata") == exittime
+                                                as.POSIXct(format(subset$date), tz = kTimeZone) == exittime
                                         )
                                         if (length(exitindex) == 1) {
                                                 longpos[exitindex:length(longpos)] = longpos[exitindex:length(longpos)] -
                                                         size
                                                 exchangemargin[exitindex:length(exchangemargin)] = exchangemargin[exitindex:length(exchangemargin)] -
-                                                        size*futuresettle*ExchangeMargin*1.1/100
+                                                        size*futuresettle*kExchangeMargin*1.1
                                         }
                                 }
                                 
@@ -1171,24 +1203,25 @@ for (i in 1:nrow(subset)) {
 
 if(nrow(trades)>0){
         BizDayBacktestEnd=adjust("India",min(Sys.Date(),
-                                             as.Date(BackTestEndDate, tz = "Asia/Kolkata")),bdc=2)
+                                             as.Date(kBackTestEndDate, tz = kTimeZone)),bdc=2)
         for (t in 1:nrow(trades)) {
                 expirydate = as.Date(unlist(strsplit(trades$symbol[t], "_"))[3], "%Y%m%d", tz =
-                                             "Asia/Kolkata")
+                                             kTimeZone)
                 if (is.na(trades$exitreason[t]) &&
                     (
                             (expirydate > min(Sys.Date(),
-                                              as.Date(BackTestEndDate, tz = "Asia/Kolkata")))
+                                              as.Date(kBackTestEndDate, tz = kTimeZone)))
                     )){
-                        load(paste(fnodatafolder, trades$symbol[t], ".Rdata", sep = ""))
-                        index=which(as.Date(md$date)==BizDayBacktestEnd)
+                        symbolsvector=unlist(strsplit(trades$symbol[t],"_"))
+                        load(paste(kFNODataFolder,symbolsvector[3],"/", trades$symbol[t], ".Rdata", sep = ""))
+                        index=which(as.Date(md$date,tz=kTimeZone)==BizDayBacktestEnd)
                         if(length(index)==1){
                                 trades$exitprice[t] = md$settle[index]
                         }else{
                                 trades$exitprice[t] = tail(md$settle,1)
                         }
                         trades$absolutepnl[t] = (trades$entryprice[t] - trades$exitprice[t] -
-                                                         (SingleLegBrokerage / 75)) * trades$size[t]
+                                                         (kPerContractBrokerage / 75)) * trades$size[t]
                         
                 }
         }
@@ -1197,21 +1230,21 @@ if(nrow(trades)>0){
 
 entrysize = 0
 exitsize = 0
-if (length(which(as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date())) == 1) {
-        entrysize = trades[as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date(), c("size")][1]
+if (length(which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date())) == 1) {
+        entrysize = trades[as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date(), c("size")][1]
 }
-if (length(which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date())) >= 1) {
-        exittime=which(as.Date(optionTrades$exittime,tz="Asia/Kolkata") == Sys.Date())
-        exitsize = sum(optionTrades[exittime, c("size")])
+if (length(which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date())) >= 1) {
+        exittime=which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date())
+        exitsize = sum(trades[exittime, c("size")])
 }
 
 #Exit First, then enter
 #Write Exit to Redis
 
-if (exitsize > 0) {
+if (exitsize > 0 & kWriteToRedis) {
         redisConnect()
         redisSelect(args[3])
-        out <- trades[which(as.Date(trades$exittime,tz="Asia/Kolkata") == Sys.Date()),]
+        out <- trades[which(as.Date(trades$exittime,tz=kTimeZone) == Sys.Date()),]
         for (o in 1:nrow(out)) {
                 startingposition = abs(GetCurrentPosition(out[o, "symbol"], trades)) + out[o, "size"]
                 redisString = paste(out[o, "symbol"],
@@ -1230,10 +1263,10 @@ if (exitsize > 0) {
         redisClose()
 }
 
-if (entrysize > 0) {
+if (entrysize > 0 & kWriteToRedis) {
         redisConnect()
         redisSelect(args[3])
-        out <- trades[which(as.Date(trades$entrytime,tz="Asia/Kolkata") == Sys.Date()),]
+        out <- trades[which(as.Date(trades$entrytime,tz=kTimeZone) == Sys.Date()),]
         for (o in 1:nrow(out)) {
                 startingposition = abs(GetCurrentPosition(out[o, "symbol"], trades)) - out[o, "size"]
                 redisString = paste(out[o, "symbol"],
@@ -1255,18 +1288,18 @@ niftymd<-cbind(niftymd,longpos,shortpos)
 save(niftymd,file="niftymd.R")
 save(trades,file="trades.R")
 
-#tempdates<-seq(from=as.Date(BackTestStartDate,tz="Asia/Kolkata"),to=as.Date(min(Sys.Date(),as.Date(BackTestEndDate,tz="Asia/Kolkata"))),by=1)
+#tempdates<-seq(from=as.Date(kBackTestStartDate,tz=kTimeZone),to=as.Date(min(Sys.Date(),as.Date(kBackTestEndDate,tz=kTimeZone))),by=1)
 #bizdays<-isBusinessDay("India",tempdates)
-pnl<-data.frame(bizdays=as.Date(subset$date,tz="Asia/Kolkata"),realized=0,unrealized=0,brokerage=0)
-cumpnl<-CalculateDailyPNL(trades,pnl,fnodatafolder,SingleLegBrokerage/75)
+pnl<-data.frame(bizdays=as.Date(subset$date,tz=kTimeZone),realized=0,unrealized=0,brokerage=0)
+cumpnl<-CalculateDailyPNL(trades,pnl,kFNODataFolder,kPerContractBrokerage/75,deriv=TRUE)
 
 DailyPNL <-
         (cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage) - Ref(cumpnl$realized + cumpnl$unrealized-cumpnl$brokerage, -1)
 DailyPNL <- ifelse(is.na(DailyPNL), 0, DailyPNL)
 DailyReturn <-
         ifelse(exchangemargin == 0, 0, DailyPNL / exchangemargin)
-DailyReturn<-DailyPNL/(mean(subset$futuresettle)*ExchangeMargin*1.1/100)
-df <- data.frame(time = as.Date(subset$date,tz="Asia/Kolkata"), return = DailyReturn)
+DailyReturn<-DailyPNL/(mean(subset$futuresettle)*kExchangeMargin*1.1)
+df <- data.frame(time = as.Date(subset$date,tz=kTimeZone), return = DailyReturn)
 df <- read.zoo(df)
 sharpe <-
         SharpeRatio((df[df != 0][, 1, drop = FALSE]), Rf = .07 / 365, FUN = "StdDev") *
@@ -1275,7 +1308,7 @@ print(paste("sharpe:", sharpe, sep = ""))
 
 
 holdingyears=as.numeric(subset$date[nrow(subset)]-subset$date[1])/365
-return<-sum(trades$absolutepnl) * 100 / (maxtotalpos * mean(subset$futuresettle) * ExchangeMargin/100)
+return<-sum(trades$absolutepnl) * 100 / (kMaxTotalPosition * mean(subset$futuresettle) * kExchangeMargin)
 print(paste("Annual Return:",return/holdingyears))
 
 print(paste("winratio:", sum(trades$absolutepnl > 0) / nrow(trades), sep =
