@@ -82,6 +82,8 @@ kFullSize=as.numeric(static$FullSize)*kRiskUnits
 kHalfSize=as.numeric(static$HalfSize)*kRiskUnits
 kLogFile=static$LogFile
 ptm <- proc.time()
+kBackTestEndDate=strftime(adjust("India",as.Date(kBackTestEndDate, tz = kTimeZone),bdc=2),"%Y-%m-%d")
+kBackTestStartDate=strftime(adjust("India",as.Date(kBackTestStartDate, tz = kTimeZone),bdc=0),"%Y-%m-%d")
 
 logger <- create.logger()
 logfile(logger) <- kLogFile
