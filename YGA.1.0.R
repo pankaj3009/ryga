@@ -100,7 +100,7 @@ if (length(args) > 1) {
                                         "NSENIFTY_IND___",
                                         "tick",
                                         "close",
-                                        paste(today, " 09:12:00"))
+                                        paste(today, " 09:12:00"),paste(today, " 15:30:00"))
         if(nrow(newrow)==1){
                 newrow <-
                         data.frame(
@@ -261,7 +261,7 @@ for (i in 1:nrow(niftymd)) {
                                                  symbol,
                                                  "tick",
                                                  "close",
-                                                 paste(today, " 09:12:00"))
+                                                 paste(today, " 09:12:00"),paste(today, " 15:30:00"))
         }
         niftymd$futuresettle[i] = datarow$settle[1]
         niftymd$futurehigh[i] = datarow$high[1]
@@ -280,7 +280,7 @@ for (i in 1:nrow(niftymd)) {
                                                  symbol,
                                                  "tick",
                                                  "close",
-                                                 paste(today, " 09:12:00"))
+                                                 paste(today, " 09:12:00"),paste(today, " 15:30:00"))
         }
         niftymd$currentfuturesettle[i] = datarow$settle[1]
         niftymd$currentfuturehigh[i] = datarow$high[1]
@@ -369,7 +369,7 @@ for (i in 1:nrow(niftymd)) {
                                                          symbol,
                                                          "tick",
                                                          "close",
-                                                         paste(today, " 09:12:00"))
+                                                         paste(today, " 09:12:00"),paste(today, " 15:30:00"))
                 }
                 if (nrow(datarow) == 1) {
                         niftymd$callprice[i] = datarow$settle
@@ -415,7 +415,7 @@ for (i in 1:nrow(niftymd)) {
                                                          symbol,
                                                          "tick",
                                                          "close",
-                                                         paste(today, " 09:12:00"))
+                                                         paste(today, " 09:12:00"),paste(today, " 15:30:00"))
                 }
                 if (nrow(datarow) == 1) {
                         niftymd$putprice[i] = datarow$settle
@@ -536,7 +536,7 @@ for (i in 1:nrow(niftymd)) {
                                                         paste(
                                                                 today,
                                                                 " 09:12:00"
-                                                        )
+                                                        ),paste(today, " 15:30:00")
                                                 )
                                         }
                                         if (nrow(datarow) == 1) {
@@ -791,7 +791,7 @@ for (i in 1:nrow(niftymd)) {
                                                         paste(
                                                                 today,
                                                                 " 09:12:00"
-                                                        )
+                                                        ),paste(today, " 15:30:00")
                                                 )
                                         }
                                         if (nrow(datarow) == 1) {
